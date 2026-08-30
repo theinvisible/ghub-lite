@@ -1,0 +1,25 @@
+=== VORHER (Release, aktueller Code) ===
+Binary          : 328 KB
+CPU im Leerlauf : 0,2603 % eines Kerns  (0,078 s in 30 s)
+Working Set     : 18,48 MB
+Private Bytes   : 3,62 MB
+Threads         : 9
+Handles         : 227
+=== NACHHER (Release, optimiert) ===
+Binary          : 319 KB
+CPU im Leerlauf : 0,1041 % eines Kerns  (0,031 s in 30 s)
+Working Set     : 18,50 MB
+Private Bytes   : 3,51 MB
+Threads         : 9
+Handles         : 229
+=== NACHHER, im Infobereich ===
+CPU: 0,0000 % eines Kerns (0,000 s in 40 s)
+Working Set: 18,46 MB
+
+=== NACHHER, kontrolliert: BEIDE Geraete wach, Fenster offen ===
+CPU           : 0,0390 % eines Kerns  (0,016 s in 40 s)
+Working Set   : 18,45 MB
+Private Bytes : 3,55 MB
+Threads       : 6
+Handles       : 227
+Binary        : 320 KB

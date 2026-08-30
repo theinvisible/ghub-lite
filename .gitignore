@@ -1,0 +1,36 @@
+# Build-Verzeichnisse (zusammen rund 100 MB)
+/build/
+/cmake-build-*/
+/out/
+
+# CMake-Reste, falls jemand in-source konfiguriert
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeUserPresets.json
+
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.sln.docstates
+*.aps
+
+# JetBrains
+/.idea
+
+# Kompilate und Debug-Beiwerk
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.tlog
+
+# Laufzeitkram
+*.log
+*.tmp
+Thumbs.db
+desktop.ini
