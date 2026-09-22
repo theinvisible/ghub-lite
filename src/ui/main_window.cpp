@@ -1,5 +1,6 @@
 #include "ui/main_window.h"
 
+#include "app/ipc.h"
 #include "app/keystroke.h"
 #include "ui/dpi_panel.h"
 
@@ -17,7 +18,7 @@ extern "C" {
 namespace ui {
 namespace {
 
-constexpr wchar_t kClassName[] = L"GhubLiteMain";
+constexpr const wchar_t* kClassName = app::kWindowClass;
 constexpr wchar_t kWindowTitle[] = L"ghub-lite";
 
 // Nachrichten
@@ -41,8 +42,8 @@ enum : int {
 
 // Menuebefehle im Infobereich
 enum : int {
-    IDM_SHOW = 200,
-    IDM_EXIT = 201,
+    IDM_SHOW = app::kCmdShow,   // auch von aussen gepostet, siehe app/ipc.h
+    IDM_EXIT = app::kCmdExit,
     IDM_PRESET = 210,   // .. 217
     IDM_RATE   = 230,   // .. 237
 };

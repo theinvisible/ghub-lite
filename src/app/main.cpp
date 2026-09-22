@@ -2,6 +2,7 @@
 //
 // Einzelbinary: statische CRT, keine externen Abhaengigkeiten, nur System-DLLs.
 
+#include "app/ipc.h"
 #include "ui/dpi_panel.h"
 #include "ui/main_window.h"
 #include "ui/theme.h"
@@ -21,7 +22,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdline, int) {
     // Nur eine Instanz: eine zweite wuerde um denselben HID++-Kanal konkurrieren.
     HANDLE once = CreateMutexW(nullptr, TRUE, L"Local\\ghub-lite-single-instance");
     if (once && GetLastError() == ERROR_ALREADY_EXISTS) {
-        if (HWND existing = FindWindowW(L"GhubLiteMain", nullptr)) {
+        if (HWND existing = FindWindowW(app::kWindowClass, nullptr)) {
             ShowWindow(existing, SW_SHOW);
             ShowWindow(existing, SW_RESTORE);
             SetForegroundWindow(existing);

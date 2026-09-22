@@ -101,3 +101,41 @@ gl_set_warnings(ghub-lite)
 if(MSVC)
     set_target_properties(ghub-lite PROPERTIES LINK_FLAGS "/MANIFEST:NO")
 endif()
+
+# ---------------------------------------------------------------------------
+# ghub-lite-setup: Installer pro Benutzer. Traegt ghub-lite.exe als Ressource in sich,
+# bleibt also selbst ein einzelnes Binary zum Weitergeben.
+# ---------------------------------------------------------------------------
+# Die Exe erst an einen festen Ort kopieren: der Pfad muss beim Konfigurieren feststehen,
+# weil er in die erzeugte .rc geschrieben wird, und $<TARGET_FILE> haengt an der
+# Konfiguration. Ein Debug-Build ueberschreibt die Nutzlast deshalb mit der Debug-Exe.
+set(GL_PAYLOAD ${CMAKE_BINARY_DIR}/payload/ghub-lite.exe)
+add_custom_command(
+    OUTPUT ${GL_PAYLOAD}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/payload
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:ghub-lite> ${GL_PAYLOAD}
+    DEPENDS ghub-lite
+    COMMENT "Nutzlast fuer das Setup: ghub-lite.exe"
+    VERBATIM)
+configure_file(res/setup_payload.rc.in ${CMAKE_BINARY_DIR}/setup_payload.rc @ONLY)
+set_source_files_properties(${GL_PAYLOAD} PROPERTIES HEADER_FILE_ONLY TRUE)
+
+add_executable(ghub-lite-setup WIN32
+    src/setup/setup.cpp
+    src/app/settings.cpp
+    res/setup.rc
+    ${CMAKE_BINARY_DIR}/setup_payload.rc
+    ${GL_PAYLOAD}
+)
+target_include_directories(ghub-lite-setup PRIVATE src)
+target_compile_definitions(ghub-lite-setup PRIVATE GL_VERSION="${PROJECT_VERSION}")
+# Neue Exe -> .rc neu uebersetzen. Ohne das haelt der Generator die Ressource fuer aktuell,
+# weil sich die .rc selbst nicht geaendert hat.
+set_source_files_properties(${CMAKE_BINARY_DIR}/setup_payload.rc PROPERTIES
+    OBJECT_DEPENDS ${GL_PAYLOAD})
+target_link_libraries(ghub-lite-setup PRIVATE
+    comctl32 ole32 uuid shell32 advapi32 user32)
+gl_set_warnings(ghub-lite-setup)
+if(MSVC)
+    set_target_properties(ghub-lite-setup PROPERTIES LINK_FLAGS "/MANIFEST:NO")
+endif()

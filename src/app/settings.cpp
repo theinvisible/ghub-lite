@@ -57,7 +57,7 @@ bool read_autostart() {
     return st == ERROR_SUCCESS;
 }
 
-bool write_autostart(bool on) {
+bool write_autostart(bool on, const std::wstring& exe) {
     HKEY key = nullptr;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKey, 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS)
         return false;
@@ -65,7 +65,7 @@ bool write_autostart(bool on) {
     LSTATUS st;
     if (on) {
         // Mit --tray starten: beim Anmelden soll nur das Infobereich-Symbol erscheinen.
-        const std::wstring cmd = L"\"" + exe_path() + L"\" --tray";
+        const std::wstring cmd = L"\"" + exe + L"\" --tray";
         st = RegSetValueExW(key, kRunValue, 0, REG_SZ,
                             reinterpret_cast<const BYTE*>(cmd.c_str()),
                             static_cast<DWORD>((cmd.size() + 1) * sizeof(wchar_t)));

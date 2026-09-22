@@ -64,6 +64,10 @@ private:
 // Autostart laeuft ueber HKCU\...\CurrentVersion\Run -- geschrieben wird nur auf
 // ausdruecklichen Wunsch, nie beiläufig beim Start.
 bool read_autostart();
-bool write_autostart(bool on);
+
+// exe: welches Programm beim Anmelden startet. Der Installer uebergibt den installierten Pfad
+// statt seines eigenen; Name und Format des Eintrags bleiben so an einer Stelle.
+std::wstring exe_path();
+bool write_autostart(bool on, const std::wstring& exe = exe_path());
 
 } // namespace app

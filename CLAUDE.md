@@ -25,16 +25,37 @@ CMake liegt unter
 `C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`
 und ist nicht im PATH.
 
-**Für den Alltagsbetrieb das Release-Binary nehmen**, nicht `cmake-build-relwithdebinfo`
-(1,33 MB gegen 322 KB). Es gibt eine Einzelinstanz-Sperre: ein zweiter Start holt das
-vorhandene Fenster nach vorn und beendet sich.
+**Für den Alltagsbetrieb installieren**, nicht aus dem Build-Verzeichnis starten:
+
+```
+build\msvc-release\Release\ghub-lite-setup.exe /quiet
+```
+
+Installiert pro Benutzer nach `%LOCALAPPDATA%\Programs\ghub-lite` (ohne Adminrechte),
+legt Startmenü-Eintrag und „Apps & Features“-Eintrag an und biegt einen vorhandenen
+Autostart auf den installierten Pfad um. Eine laufende Instanz wird vorher über `IDM_EXIT`
+sauber beendet und danach mit `--tray` neu gestartet. Ohne `/quiet` kommt ein Dialog.
+Entfernen: `uninstall.exe /uninstall [/quiet]` im Installationsordner; `settings.ini`
+bleibt. Das Setup trägt die Release-Exe als Ressource in sich (`build/.../payload/`) — ein
+Debug-Build überschreibt diese Nutzlast.
+
+Nicht `cmake-build-relwithdebinfo` nehmen (1,33 MB gegen 322 KB). Es gibt eine
+Einzelinstanz-Sperre: ein zweiter Start holt das vorhandene Fenster nach vorn und beendet
+sich. Läuft die installierte Instanz, schlägt das Linken der Build-Exe **nicht** mehr fehl
+(anderer Pfad) — beim Test aus dem Build-Verzeichnis greift aber die Einzelinstanz-Sperre.
+
+**PowerShell-Falle:** `Start-Process -Wait` wartet auf den ganzen Prozessbaum — beim Setup
+also auch auf das neu gestartete ghub-lite. Stattdessen `-PassThru` und `WaitForExit()`.
+Und `$null` als String-Argument an P/Invoke wird zu `""`: `FindWindowW("GhubLiteMain", $null)`
+findet nichts, als zweiten Parameter `IntPtr` deklarieren und `[IntPtr]::Zero` übergeben.
 
 ## Aufbau
 
 ```
 src/hidpp/    Protokoll und Geraeteverwaltung, keine UI-Abhaengigkeit
 src/ui/       Fenster, Panels, Dark Mode
-src/app/      Einstiegspunkt, Einstellungen, Tastenkombinationen senden
+src/app/      Einstiegspunkt, Einstellungen, Tastenkombinationen senden, ipc.h
+src/setup/    ghub-lite-setup -- Installer pro Benutzer, bettet ghub-lite.exe ein
 tools/        hidpp_dump -- Konsolen-Probe, benutzt dieselbe hidpp-Schicht
 ```
 

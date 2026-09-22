@@ -1,0 +1,2 @@
+// Erzeugt von CMake (configure_file). Bettet die fertige ghub-lite.exe in das Setup ein.
+PAYLOAD RCDATA "@GL_PAYLOAD@"
