@@ -38,6 +38,11 @@ struct DpiCaps {
 };
 
 bool read_dpi(Device& dev, DpiCaps* out);
+
+// Nur den aktiven Wert neu lesen, ueber das Feature, das read_dpi() gefunden hat. Bei
+// Misserfolg bleibt caps unveraendert -- ein Timeout darf die bekannten Faehigkeiten nicht
+// wegwischen.
+bool read_dpi_current(Device& dev, DpiCaps* caps);
 bool write_dpi(Device& dev, const DpiCaps& caps, uint16_t dpi, std::wstring* error_out);
 
 } // namespace hidpp

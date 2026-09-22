@@ -26,6 +26,10 @@ struct RateCaps {
 // wireless == true, wenn das Geraet ueber einen Empfaenger haengt (relevant fuer 0x8061,
 // das seine Ratenliste pro Verbindungsart fuehrt).
 bool read_rate(Device& dev, bool wireless, RateCaps* out);
+
+// Nur die aktive Rate neu lesen, ueber das Feature, das read_rate() gefunden hat. Bei
+// Misserfolg bleibt caps unveraendert -- ein Timeout darf die Ratenliste nicht wegwischen.
+bool read_rate_current(Device& dev, RateCaps* caps);
 bool write_rate(Device& dev, const RateCaps& caps, uint16_t hz, std::wstring* error_out);
 
 } // namespace hidpp

@@ -48,9 +48,10 @@ Vendor-Collections dagegen schon, ohne Adminrechte.
 Gesendet wird ausschließlich über den Long-Kanal. Ein **Verteiler-Thread** liest dauerhaft
 auf allen offenen Collections und sortiert jede Meldung ein: passt sie zu einer wartenden
 Anfrage, bekommt sie der Wartende, sonst geht sie an den Meldungs-Handler. Die
-Unterscheidung ist verlässlich, weil Antworten `swId 0x0A` tragen und unaufgeforderte
-Meldungen `swId 0`. Ohne diesen Dauerbetrieb gingen G-Tastendrücke verloren, weil zwischen
-zwei Anfragen niemand liest.
+Unterscheidung ist verlässlich, weil Antworten die swId ihrer Anfrage tragen (reihum
+`2…15`, damit eine verspätete Antwort nicht bei der nächsten Anfrage landet) und
+unaufgeforderte Meldungen `swId 0`. Ohne diesen Dauerbetrieb gingen G-Tastendrücke
+verloren, weil zwischen zwei Anfragen niemand liest.
 
 Feature-Indizes sind **geräteabhängig** und werden zur Laufzeit über `IRoot` (`0x0000`,
 liegt immer auf Index 0) aufgelöst und gecacht. Nichts davon ist hartkodiert.

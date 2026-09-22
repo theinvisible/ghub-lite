@@ -1,14 +1,21 @@
 // Signalraten-Auswahl: eine Reihe Radioknoepfe, deren Beschriftung aus den Faehigkeiten
-// des Geraets kommt. Hier reichen Standard-Controls -- BS_AUTORADIOBUTTON mit dem Theme
-// DarkMode_Explorer sieht dunkel ordentlich aus, anders als die Trackbar.
+// des Geraets kommt. Standard-Controls mit dem Theme DarkMode_Explorer -- bis auf die
+// Beschriftung: die zeichnet das Theme bei *aktivierten* Radioknoepfen in seiner eigenen,
+// fast schwarzen Farbe und ignoriert WM_CTLCOLOR*. Deaktiviert nimmt es Grau, weshalb das
+// nur bei verbundenem Geraet auffiel. Die Checkboxen sind davon nicht betroffen. Im Dark
+// Mode zeichnet custom_draw() deshalb die Beschriftung selbst; den Kreis malt weiter das
+// Theme.
 #pragma once
 
 #include <windows.h>
+#include <commctrl.h>
 
 #include <cstdint>
 #include <vector>
 
 namespace ui {
+
+class Theme;
 
 class RatePanel {
 public:
@@ -26,6 +33,10 @@ public:
 
     // 0, wenn die ID zu keinem sichtbaren Knopf gehoert.
     uint16_t rate_for_id(int id) const;
+
+    // NM_CUSTOMDRAW eines Knopfes dieses Panels; Rueckgabe geht unveraendert an Windows.
+    bool owns(HWND h) const;
+    LRESULT custom_draw(const NMCUSTOMDRAW& cd, const Theme& theme) const;
 
     int first_id() const { return first_id_; }
     int last_id() const { return first_id_ + static_cast<int>(buttons_.size()) - 1; }

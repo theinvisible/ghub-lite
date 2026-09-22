@@ -12,6 +12,7 @@
 #include "hidpp/hid_enum.h"
 
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -26,8 +27,13 @@ inline constexpr uint8_t kReportShort    = 0x10;
 inline constexpr uint8_t kReportLong     = 0x11;
 inline constexpr uint8_t kReportVeryLong = 0x12;
 
-// swId 0 ist reserviert; jede andere 4-Bit-Kennung darf die Software frei waehlen.
-inline constexpr uint8_t kSwId = 0x0A;
+// swId 0 ist unaufgeforderten Meldungen vorbehalten; die Software waehlt frei aus 1..15.
+// Jede Anfrage bekommt reihum eine andere Kennung: bei einer festen swId wuerde eine
+// verspaetete Antwort der naechsten gleichartigen Anfrage zugestellt (etwa getFeature fuer
+// ein anderes Feature), und deren falscher Index landete im Feature-Cache. 1 bleibt frei,
+// weil andere Software sie gern benutzt.
+inline constexpr uint8_t kSwIdFirst = 0x02;
+inline constexpr uint8_t kSwIdLast  = 0x0F;
 
 // 0xFF adressiert den Empfaenger selbst bzw. ein direkt angeschlossenes Geraet.
 // 1..6 sind die am Empfaenger gepaarten Geraete.
@@ -74,8 +80,8 @@ std::wstring hex_dump(const uint8_t* data, size_t len);
 // unaufgeforderte Meldungen -- G-Tastendruecke, Akkustand -- verloren, weil zwischen zwei
 // Anfragen niemand liest.
 //
-// Die Unterscheidung ist verlaesslich: Antworten tragen swId 0x0A, unaufgeforderte
-// Meldungen swId 0.
+// Die Unterscheidung ist verlaesslich: Antworten tragen die swId ihrer Anfrage (2..15),
+// unaufgeforderte Meldungen swId 0.
 class Channel {
 public:
     // Wird auf dem Verteiler-Thread aufgerufen, nicht auf dem des Aufrufers.
@@ -89,6 +95,11 @@ public:
     bool open(const HidppEndpoint& ep, std::wstring* error_out = nullptr);
     void close();
     bool is_open() const { return long_h_ != nullptr; }
+
+    // false, sobald der Verteiler-Thread aufgegeben hat -- typischerweise, weil das Geraet
+    // abgezogen wurde. Die Handles sind dann tot, auch wenn is_open() noch true sagt; ein
+    // solcher Kanal muss neu geoeffnet werden.
+    bool healthy() const { return is_open() && alive_; }
 
     const HidppEndpoint& endpoint() const { return ep_; }
 
@@ -115,9 +126,11 @@ private:
     void* stop_event_  = nullptr;   // HANDLE
 
     std::thread dispatcher_;
+    std::atomic<bool> alive_{false};
     std::mutex mtx_;
     std::condition_variable cv_;
     std::vector<Waiter*> waiters_;
+    uint8_t next_swid_ = kSwIdFirst;   // unter mtx_
     NotificationHandler on_notification_;
 };
 

@@ -1,9 +1,79 @@
 #include "ui/rate_panel.h"
 
+#include "ui/theme.h"
+
+#include <uxtheme.h>
+#include <vssym32.h>
+#include <windowsx.h>
+
+#include <algorithm>
 #include <cwchar>
 #include <utility>
 
 namespace ui {
+
+bool RatePanel::owns(HWND h) const {
+    return std::find(buttons_.begin(), buttons_.end(), h) != buttons_.end();
+}
+
+LRESULT RatePanel::custom_draw(const NMCUSTOMDRAW& cd, const Theme& theme) const {
+    // Hell zeichnet das Theme die Beschriftung richtig -- dort nichts anfassen.
+    if (!theme.dark() || cd.dwDrawStage != CDDS_PREPAINT) return CDRF_DODEFAULT;
+
+    // Selbst oeffnen: GetWindowTheme() liefert fuer diese Knoepfe gemessen null. Das Oeffnen
+    // am Fenster uebernimmt dessen DarkMode_Explorer aus SetWindowTheme, der Kreis bleibt
+    // also dunkel.
+    HWND b = cd.hdr.hwndFrom;
+    const UINT dpi = GetDpiForWindow(b);
+    HTHEME th = OpenThemeDataForDpi(b, L"Button", dpi);
+    if (!th) return CDRF_DODEFAULT;
+
+    HDC dc = cd.hdc;
+    RECT rc = cd.rc;
+    FillRect(dc, &rc, theme.bg_brush());
+
+    const bool disabled = (cd.uItemState & CDIS_DISABLED) != 0;
+    int state = disabled                           ? RBS_UNCHECKEDDISABLED
+              : (cd.uItemState & CDIS_SELECTED)    ? RBS_UNCHECKEDPRESSED
+              : (cd.uItemState & CDIS_HOT)         ? RBS_UNCHECKEDHOT
+                                                   : RBS_UNCHECKEDNORMAL;
+    if (Button_GetCheck(b) == BST_CHECKED) state += RBS_CHECKEDNORMAL - RBS_UNCHECKEDNORMAL;
+
+    // Den Kreis weiter vom Theme: der ist im Dark Mode richtig und passt zu den Checkboxen.
+    SIZE glyph{};
+    GetThemePartSize(th, dc, BP_RADIOBUTTON, state, nullptr, TS_DRAW, &glyph);
+    RECT g{rc.left, rc.top + (rc.bottom - rc.top - glyph.cy) / 2, 0, 0};
+    g.right = g.left + glyph.cx;
+    g.bottom = g.top + glyph.cy;
+    DrawThemeBackground(th, dc, BP_RADIOBUTTON, state, &g, nullptr);
+
+    wchar_t label[32] = {};
+    GetWindowTextW(b, label, 32);
+    RECT text{g.right + MulDiv(4, static_cast<int>(dpi), 96), rc.top, rc.right, rc.bottom};
+
+    HGDIOBJ old_font = nullptr;
+    if (auto font = reinterpret_cast<HFONT>(SendMessageW(b, WM_GETFONT, 0, 0)))
+        old_font = SelectObject(dc, font);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, disabled ? theme.colors().text_dim : theme.colors().text);
+    constexpr UINT kFmt = DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX;
+    DrawTextW(dc, label, -1, &text, kFmt);
+
+    // Fokusrahmen wie beim Original nur, wenn Windows gerade Tastatur-Hinweise zeigt.
+    const auto ui_state = static_cast<UINT>(SendMessageW(b, WM_QUERYUISTATE, 0, 0));
+    if ((cd.uItemState & CDIS_FOCUS) && !(ui_state & UISF_HIDEFOCUS)) {
+        RECT fr = text;
+        DrawTextW(dc, label, -1, &fr, kFmt | DT_CALCRECT);
+        const int dy = ((text.bottom - text.top) - (fr.bottom - fr.top)) / 2;
+        OffsetRect(&fr, 0, dy);
+        InflateRect(&fr, 1, 1);
+        DrawFocusRect(dc, &fr);
+    }
+
+    if (old_font) SelectObject(dc, old_font);
+    CloseThemeData(th);
+    return CDRF_SKIPDEFAULT;
+}
 
 void RatePanel::create(HWND parent, HINSTANCE inst, int first_id) {
     first_id_ = first_id;

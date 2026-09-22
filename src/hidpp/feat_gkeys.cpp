@@ -32,7 +32,7 @@ bool decode_gkey_event(const uint8_t* data, size_t len, uint8_t dev_index,
                        uint8_t feature_index, uint16_t* mask_out) {
     // 11 | devIdx | featIdx | eventId<<4 | swId | Nutzdaten...
     // Unaufgeforderte Meldungen tragen swId 0; nur so lassen sie sich sicher von den
-    // Antworten auf eigene Anfragen (swId 0x0A) unterscheiden.
+    // Antworten auf eigene Anfragen (swId 2..15) unterscheiden.
     if (len < 6) return false;
     if (data[1] != dev_index) return false;
     if (data[2] != feature_index) return false;

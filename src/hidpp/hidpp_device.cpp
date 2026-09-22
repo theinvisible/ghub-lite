@@ -214,6 +214,7 @@ bool Channel::open(const HidppEndpoint& ep, std::wstring* error_out) {
     if (ep.has_very_long()) very_long_h_ = open_collection(ep.very_long_col.path, nullptr);
 
     stop_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    alive_ = true;
     dispatcher_ = std::thread([this] { dispatch_loop(); });
     return true;
 }
@@ -221,6 +222,7 @@ bool Channel::open(const HidppEndpoint& ep, std::wstring* error_out) {
 void Channel::close() {
     if (stop_event_) SetEvent(static_cast<HANDLE>(stop_event_));
     if (dispatcher_.joinable()) dispatcher_.join();
+    alive_ = false;
     if (stop_event_) { CloseHandle(static_cast<HANDLE>(stop_event_)); stop_event_ = nullptr; }
 
     // Erst nach dem Thread-Ende schliessen, sonst liest der Verteiler auf toten Handles.
@@ -297,6 +299,13 @@ void Channel::dispatch_loop() {
         live[active++] = &readers[i];
     }
 
+    // Ohne die Long-Collection ist der Kanal nutzlos -- dann gleich als tot melden, statt
+    // Anfragen in den Timeout laufen zu lassen.
+    if (active == 0 || live[0] != &readers[0]) {
+        alive_ = false;
+        return;
+    }
+
     for (;;) {
         HANDLE waits[4];
         DWORD n = 0;
@@ -307,39 +316,54 @@ void Channel::dispatch_loop() {
         if (w == WAIT_OBJECT_0) break;                       // close() hat gestoppt
         if (w < WAIT_OBJECT_0 || w >= WAIT_OBJECT_0 + n) break;
 
-        Reader* r = live[w - WAIT_OBJECT_0 - 1];
+        const DWORD slot = w - WAIT_OBJECT_0 - 1;
+        Reader* r = live[slot];
         const uint8_t* data = nullptr;
         size_t len = 0;
         if (r->take(&data, &len)) deliver(data, len);
-        if (!r->arm()) break;                                // Handle unbrauchbar
+        if (r->arm()) continue;
+
+        // Handle unbrauchbar. Faellt nur eine Neben-Collection aus, weiter auf den uebrigen
+        // lauschen -- sonst wuerde ein einzelner kaputter Nebenkanal den ganzen Kanal fuer
+        // tot erklaeren und bei jedem Scan neu geoeffnet.
+        if (r == &readers[0]) break;
+        for (int i = static_cast<int>(slot); i + 1 < active; ++i) live[i] = live[i + 1];
+        --active;
     }
+
+    // Nicht nur beim Stoppen hier: bricht der Long-Leser ab (Geraet abgezogen), meldet das
+    // healthy(), damit der Manager den Kanal neu oeffnet.
+    alive_ = false;
 }
 
 Reply Channel::call(uint8_t dev_index, uint8_t feat_index, uint8_t func_id,
                     const uint8_t* params, size_t nparams, unsigned timeout_ms) {
     Reply reply;
     if (!is_open()) return reply;
+    if (!alive_) { reply.status = Status::IoError; return reply; }   // niemand liest mehr
 
-    const uint8_t address = static_cast<uint8_t>((func_id << 4) | kSwId);
+    // Erst anmelden, dann senden: der Verteiler-Thread liest schon, die Antwort kann
+    // eintreffen, bevor WriteFile zurueckkehrt. Die swId wird im selben Zug vergeben.
+    // Eine Verwechslung ist erst wieder moeglich, wenn eine Antwort mehr als 13 Anfragen
+    // zu spaet kommt.
+    Waiter waiter;
+    waiter.dev_index = dev_index;
+    waiter.feat_index = feat_index;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        const uint8_t sw = next_swid_;
+        next_swid_ = (sw >= kSwIdLast) ? kSwIdFirst : static_cast<uint8_t>(sw + 1);
+        waiter.address = static_cast<uint8_t>((func_id << 4) | sw);
+        waiters_.push_back(&waiter);
+    }
+
     const size_t out_len = ep_.long_col.output_len ? ep_.long_col.output_len : 20;
-
     std::vector<uint8_t> out(out_len, 0);
     out[0] = kReportLong;
     out[1] = dev_index;
     out[2] = feat_index;
-    out[3] = address;
+    out[3] = waiter.address;
     for (size_t i = 0; i < nparams && 4 + i < out.size(); ++i) out[4 + i] = params[i];
-
-    // Erst anmelden, dann senden: der Verteiler-Thread liest schon, die Antwort kann
-    // eintreffen, bevor WriteFile zurueckkehrt.
-    Waiter waiter;
-    waiter.dev_index = dev_index;
-    waiter.feat_index = feat_index;
-    waiter.address = address;
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        waiters_.push_back(&waiter);
-    }
 
     // Beim Verlassen in jedem Fall wieder abmelden -- sonst zeigt der Verteiler auf einen
     // Wartenden, den es nicht mehr gibt.

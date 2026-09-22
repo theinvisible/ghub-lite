@@ -21,10 +21,8 @@ bool read_rate_8060(Device& dev, RateCaps* out) {
         out->rates_hz.push_back(static_cast<uint16_t>(1000 / (i + 1)));
     }
 
-    Reply cur = dev.call(kFeatReportRate, 1);
-    if (cur && cur.param(0) > 0) out->current_hz = static_cast<uint16_t>(1000 / cur.param(0));
-
     out->via_feature = kFeatReportRate;
+    read_rate_current(dev, out);
     out->valid = !out->rates_hz.empty();
     return out->valid;
 }
@@ -39,10 +37,8 @@ bool read_rate_8061(Device& dev, bool wireless, RateCaps* out) {
     for (size_t i = 0; i < kExtRateCount; ++i)
         if (bits & (1u << i)) out->rates_hz.push_back(kExtRates[i]);
 
-    Reply cur = dev.call(kFeatExtReportRate, 1);
-    if (cur && cur.param(0) < kExtRateCount) out->current_hz = kExtRates[cur.param(0)];
-
     out->via_feature = kFeatExtReportRate;
+    read_rate_current(dev, out);
     out->valid = !out->rates_hz.empty();
     return out->valid;
 }
@@ -71,6 +67,23 @@ bool read_rate(Device& dev, bool wireless, RateCaps* out) {
     if (dev.has(kFeatExtReportRate) && read_rate_8061(dev, wireless, out)) return true;
     *out = RateCaps{};
     if (dev.has(kFeatReportRate)) return read_rate_8060(dev, out);
+    return false;
+}
+
+bool read_rate_current(Device& dev, RateCaps* caps) {
+    if (caps->via_feature == kFeatExtReportRate) {
+        Reply cur = dev.call(kFeatExtReportRate, 1);
+        if (!cur || cur.param(0) >= kExtRateCount) return false;
+        caps->current_hz = kExtRates[cur.param(0)];
+        return true;
+    }
+    if (caps->via_feature == kFeatReportRate) {
+        // Antwort ist das Intervall in Millisekunden, nicht die Frequenz.
+        Reply cur = dev.call(kFeatReportRate, 1);
+        if (!cur || cur.param(0) == 0) return false;
+        caps->current_hz = static_cast<uint16_t>(1000 / cur.param(0));
+        return true;
+    }
     return false;
 }
 

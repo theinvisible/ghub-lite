@@ -733,6 +733,14 @@ void MainWindow::show_tray_menu() {
     DestroyMenu(menu);
 }
 
+// Gemeinsamer Ausstieg fuer WM_DESTROY und WM_ENDSESSION. Mehrfach aufrufbar: alle drei
+// Schritte tun beim zweiten Mal nichts mehr.
+void MainWindow::shutdown_devices() {
+    gkeys_.cancel_capture();   // Hook nie haengen lassen
+    manager_.stop();
+    tray_.remove();
+}
+
 void MainWindow::paint(HDC dc) {
     RECT rc{};
     GetClientRect(hwnd_, &rc);
@@ -806,6 +814,13 @@ LRESULT MainWindow::handle(UINT msg, WPARAM wp, LPARAM lp) {
             else
                 SetTextColor(dc, theme_.colors().text);
             return reinterpret_cast<LRESULT>(theme_.bg_brush());
+        }
+
+        case WM_NOTIFY: {
+            const auto* nm = reinterpret_cast<const NMHDR*>(lp);
+            if (nm->code == NM_CUSTOMDRAW && rates_.owns(nm->hwndFrom))
+                return rates_.custom_draw(*reinterpret_cast<const NMCUSTOMDRAW*>(lp), theme_);
+            break;
         }
 
         case WM_CTLCOLOREDIT:
@@ -968,10 +983,23 @@ LRESULT MainWindow::handle(UINT msg, WPARAM wp, LPARAM lp) {
             DestroyWindow(hwnd_);
             return 0;
 
+        case WM_QUERYENDSESSION:
+            return TRUE;
+
+        case WM_ENDSESSION:
+            // Nach dieser Nachricht beendet Windows den Prozess, ohne dass noch WM_DESTROY
+            // kommt. Ohne Aufraeumen hier blieben Host-Modus und G-Tasten-Software-Modus
+            // bei jedem Abmelden und Herunterfahren stehen -- wie nach Stop-Process -Force.
+            // Kein Deadlock beim Warten auf den Worker: er und die Verteiler posten nur.
+            if (wp) {
+                ShutdownBlockReasonCreate(hwnd_, L"ghub-lite stellt die Geräte zurück …");
+                shutdown_devices();
+                ShutdownBlockReasonDestroy(hwnd_);
+            }
+            return 0;
+
         case WM_DESTROY: {
-            gkeys_.cancel_capture();   // Hook nie haengen lassen
-            manager_.stop();
-            tray_.remove();
+            shutdown_devices();
             const int n = ComboBox_GetCount(combo_);
             for (int i = 0; i < n; ++i)
                 delete[] reinterpret_cast<wchar_t*>(ComboBox_GetItemData(combo_, i));

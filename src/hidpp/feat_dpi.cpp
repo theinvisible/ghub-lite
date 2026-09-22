@@ -51,12 +51,9 @@ bool read_dpi_2201(Device& dev, DpiCaps* out) {
     // param[0] spiegelt den Sensorindex, ab param[1] beginnt die u16-Folge.
     out->segments = parse_dpi_list(list.params() + 1, list.param_len() - 1);
 
-    Reply cur = dev.call(kFeatAdjustableDpi, 2, {0});
-    if (!cur) return false;
-    out->current = cur.param_u16(1);
-    out->dflt    = cur.param_u16(3);
-
     out->via_feature = kFeatAdjustableDpi;
+    if (!read_dpi_current(dev, out)) return false;
+
     out->valid = !out->segments.empty();
     return out->valid;
 }
@@ -79,14 +76,8 @@ bool read_dpi_2202(Device& dev, DpiCaps* out) {
         out->segments.insert(out->segments.end(), segs.begin(), segs.end());
     }
 
-    Reply cur = dev.call(kFeatExtAdjustableDpi, 5, {0});
-    if (cur) {
-        // param[0]=sensorIdx, dann dpiX, defaultDpiX, dpiY, defaultDpiY
-        out->current = cur.param_u16(1);
-        out->dflt    = cur.param_u16(3);
-    }
-
     out->via_feature = kFeatExtAdjustableDpi;
+    read_dpi_current(dev, out);
     out->valid = !out->segments.empty();
     return out->valid;
 }
@@ -162,6 +153,21 @@ bool read_dpi(Device& dev, DpiCaps* out) {
     if (dev.has(kFeatExtAdjustableDpi)) return read_dpi_2202(dev, out);
     if (dev.has(kFeatAdjustableDpi))    return read_dpi_2201(dev, out);
     return false;
+}
+
+bool read_dpi_current(Device& dev, DpiCaps* caps) {
+    // 0x2201 fn2 getSensorDpi und 0x2202 fn5 getSensorDpiParameters antworten gleich
+    // aufgebaut: param[0]=sensorIdx, dann aktueller Wert und Standardwert als u16.
+    Reply cur;
+    if (caps->via_feature == kFeatExtAdjustableDpi)
+        cur = dev.call(kFeatExtAdjustableDpi, 5, {0});
+    else if (caps->via_feature == kFeatAdjustableDpi)
+        cur = dev.call(kFeatAdjustableDpi, 2, {0});
+    if (!cur) return false;
+
+    caps->current = cur.param_u16(1);
+    caps->dflt    = cur.param_u16(3);
+    return true;
 }
 
 bool write_dpi(Device& dev, const DpiCaps& caps, uint16_t dpi, std::wstring* error_out) {

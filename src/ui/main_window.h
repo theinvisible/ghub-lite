@@ -66,6 +66,7 @@ private:
 
     void show_tray_menu();
     void toggle_window(bool show);
+    void shutdown_devices();
     void paint(HDC dc);
 
     int dip(int v) const { return MulDiv(v, dpi_, 96); }

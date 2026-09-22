@@ -118,6 +118,7 @@ struct Manager::Impl {
 
     std::thread worker;
     std::atomic<bool> running{false};
+    std::atomic<bool> quit_requested{false};
 
     std::mutex mtx;
     std::condition_variable cv;
@@ -136,6 +137,21 @@ struct Manager::Impl {
             queue.push_back(std::move(c));
         }
         cv.notify_one();
+    }
+
+    // Fuer Quit: beim Abmelden laeuft die Uhr, angesammelte Kommandos duerfen das
+    // Zuruecksetzen der Geraete nicht verzoegern.
+    void push_front(Command c) {
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            queue.push_front(std::move(c));
+        }
+        cv.notify_one();
+    }
+
+    bool any_channel_dead() const {
+        return std::any_of(endpoints.begin(), endpoints.end(),
+                           [](const auto& e) { return !e.second.channel->healthy(); });
     }
 
     std::wstring last_status;
@@ -200,8 +216,17 @@ struct Manager::Impl {
         std::map<std::wstring, HidppEndpoint> by_key;
         for (auto& ep : found) by_key[ep.long_col.parent_id] = ep;
 
+        // Auch einen Kanal mit gleichem Schluessel wegwerfen, wenn er tot ist: am selben
+        // USB-Port bleibt die parent_id nach dem Umstecken gleich. Fallen Abziehen und
+        // Anstecken in dasselbe Sammelfenster von WM_DEVICECHANGE, saehe der Abgleich sonst
+        // nur "unveraendert" und behielte die toten Handles. Die Schleife darunter oeffnet
+        // neu -- mit frischem Feature-Cache, was nach dem Umstecken ohnehin richtig ist.
         for (auto it = endpoints.begin(); it != endpoints.end();) {
-            if (by_key.find(it->first) == by_key.end()) it = endpoints.erase(it);
+            const auto found_it = by_key.find(it->first);
+            const bool gone  = found_it == by_key.end();
+            const bool stale = !gone && (!it->second.channel->healthy() ||
+                                         it->second.ep.long_col.path != found_it->second.long_col.path);
+            if (gone || stale) it = endpoints.erase(it);
             else ++it;
         }
 
@@ -319,13 +344,8 @@ struct Manager::Impl {
     // bleiben, weil die DPI-Taste an der Maus und G HUB sie von aussen verstellen.
     // Akku und Onboard-Modus aendern sich langsam -- die kommen nur alle paar Ticks dran.
     void refresh_dynamic(Device& dev, DeviceState& st, bool slow_turn) {
-        if (st.dpi.valid) {
-            if (Reply r = dev.call(kFeatAdjustableDpi, 2, {0})) st.dpi.current = r.param_u16(1);
-        }
-        if (st.rate.valid && st.rate.via_feature == kFeatReportRate) {
-            if (Reply r = dev.call(kFeatReportRate, 1); r && r.param(0) > 0)
-                st.rate.current_hz = static_cast<uint16_t>(1000 / r.param(0));
-        }
+        if (st.dpi.valid)  read_dpi_current(dev, &st.dpi);
+        if (st.rate.valid) read_rate_current(dev, &st.rate);
         if (!slow_turn) return;
 
         if (st.info.has_battery && dev.has(kFeatUnifiedBattery)) {
@@ -444,13 +464,18 @@ struct Manager::Impl {
                 st.info.onboard = OnboardMode::Host;
         }
 
+        // Nach dem Schreiben nur den aktuellen Wert nachlesen, nicht die ganzen Faehigkeiten:
+        // ein Timeout beim vollen Lesen setzte valid auf false, und weil details_complete
+        // true bleibt, kaeme die Faehigkeit bis zum naechsten Verbinden nicht zurueck. Das
+        // Geraet hat den Schreibbefehl quittiert -- scheitert das Nachlesen, gilt der
+        // geschriebene Wert.
         if (it->second.dpi && st.dpi.valid && st.dpi.current != it->second.dpi) {
-            if (write_dpi(dev, st.dpi, it->second.dpi, nullptr))
-                read_dpi(dev, &st.dpi);
+            if (write_dpi(dev, st.dpi, it->second.dpi, nullptr) && !read_dpi_current(dev, &st.dpi))
+                st.dpi.current = st.dpi.snap(it->second.dpi);
         }
         if (it->second.rate_hz && st.rate.valid && st.rate.current_hz != it->second.rate_hz) {
-            if (write_rate(dev, st.rate, it->second.rate_hz, nullptr))
-                read_rate(dev, st.wireless, &st.rate);
+            if (write_rate(dev, st.rate, it->second.rate_hz, nullptr) && !read_rate_current(dev, &st.rate))
+                st.rate.current_hz = it->second.rate_hz;
         }
         // Der Software-Modus ueberlebt kein Aus/Ein der Tastatur -- nach jeder Wiederkehr
         // neu setzen, sonst gehen die G-Tasten still auf ihre Onboard-Belegung zurueck.
@@ -521,7 +546,8 @@ struct Manager::Impl {
                     publish(L"DPI setzen fehlgeschlagen: " + err, true, false);
                     break;
                 }
-                read_dpi(*dev, &st->dpi);
+                // Nur den Wert nachlesen, siehe apply_desired().
+                if (!read_dpi_current(*dev, &st->dpi)) st->dpi.current = st->dpi.snap(c.value);
                 desired[c.key].dpi = st->dpi.current;
                 wchar_t msg[80];
                 swprintf(msg, 80, L"Auflösung auf %u DPI gesetzt.", st->dpi.current);
@@ -565,7 +591,9 @@ struct Manager::Impl {
                     break;
                 }
                 if (switched) desired[c.key].host_mode = true;
-                read_rate(*dev, st->wireless, &st->rate);
+                // Nur den Wert nachlesen, siehe apply_desired(). write_rate() hat
+                // supports() geprueft, der Rueckfall ist also eine angebotene Rate.
+                if (!read_rate_current(*dev, &st->rate)) st->rate.current_hz = c.value;
                 desired[c.key].rate_hz = st->rate.current_hz;
 
                 wchar_t msg[200];
@@ -602,18 +630,24 @@ struct Manager::Impl {
 
             case Command::Kind::Quit:
                 for (auto& st : devices) {
-                    if (!st.connected) continue;
-                    Device* d = device_for(st);
-                    if (!d) continue;
-
-                    // Software-Modus aus, sonst blieben die G-Tasten tot zurueck.
-                    if (st.gkeys.valid) set_gkey_software_mode(*d, false, nullptr);
-
                     // Host-Modus nur dort zuruecknehmen, wo wir ihn selbst gesetzt haben:
                     // ohne ghub-lite soll das Geraet wieder sein eigenes Profil benutzen.
                     auto it = desired.find(st.key);
-                    if (it != desired.end() && it->second.host_mode)
-                        set_onboard_mode(*d, OnboardMode::Onboard, nullptr);
+                    const bool host = it != desired.end() && it->second.host_mode;
+                    if (!st.gkeys.valid && !host) continue;
+
+                    Device* d = device_for(st);
+                    if (!d) continue;
+
+                    // Frisch anpingen statt st.connected zu glauben: das ist bis zu einen Tick
+                    // alt, in beide Richtungen. Eine schlafende Maus nimmt keinen Befehl an und
+                    // bleibt im Host-Modus -- das ist hinnehmbar, weil der Merker in der INI
+                    // steht und der naechste Start denselben Zustand wieder herstellt.
+                    if (d->probe(kPingTimeoutMs) != Device::SlotState::Awake) continue;
+
+                    // Software-Modus aus, sonst blieben die G-Tasten tot zurueck.
+                    if (st.gkeys.valid) set_gkey_software_mode(*d, false, nullptr);
+                    if (host) set_onboard_mode(*d, OnboardMode::Onboard, nullptr);
                 }
                 break;
         }
@@ -633,6 +667,15 @@ struct Manager::Impl {
             }
 
             if (batch.empty()) {
+                // Ein Kanal ist gestorben (Geraet abgezogen), ohne dass WM_DEVICECHANGE einen
+                // Scan ausgeloest hat, der ihn ersetzt -- etwa weil Abziehen und Anstecken im
+                // selben Sammelfenster lagen. Dann selbst neu abgleichen; der Scan wirft den
+                // toten Kanal weg, es bleibt also bei einem Scan.
+                if (any_channel_dead()) {
+                    handle(Command{Command::Kind::FullScan});
+                    continue;
+                }
+
                 // Leerlauf-Tick: Verbindungsstatus pflegen. Publiziert wird nur, wenn sich
                 // an dem, was die Oberflaeche zeigt, wirklich etwas geaendert hat -- sonst
                 // kostet jeder Tick eine Kopie der Geraeteliste, eine Nachricht und einen
@@ -654,6 +697,9 @@ struct Manager::Impl {
                 // abgeschaltet, solange die Kanaele noch offen sind.
                 handle(c);
                 if (c.kind == Command::Kind::Quit) { running = false; break; }
+                // Quit wartet vorn in der Queue: den Rest dieses Stapels verwerfen, damit
+                // er beim Abmelden keine Zeit mehr kostet.
+                if (quit_requested) break;
             }
         }
     }
@@ -675,8 +721,10 @@ void Manager::start(void* notify_hwnd, unsigned notify_msg, unsigned gkey_msg) {
 void Manager::stop() {
     if (!impl_->running) return;
     // running erst vom Worker selbst zuruecksetzen lassen: er soll Quit noch abarbeiten
-    // und dabei den Software-Modus der G-Tasten sauber abschalten.
-    impl_->push(Command{Command::Kind::Quit});
+    // und dabei den Software-Modus der G-Tasten sauber abschalten. Vorn einreihen: beim
+    // Abmelden laesst Windows nur wenige Sekunden Zeit.
+    impl_->quit_requested = true;
+    impl_->push_front(Command{Command::Kind::Quit});
     if (impl_->worker.joinable()) impl_->worker.join();
     impl_->running = false;
     impl_->endpoints.clear();
