@@ -81,6 +81,14 @@ sortiert `find_endpoints()` nach Länge — niemals nach Usage.
 `FF 0A` = nicht unterstützt (Direktanschluss hat keine Funkplätze) · Timeout = da, funkt
 aber nicht.
 
+**Tasten im Host-Modus (`0x8110` MouseButtonSpy, G502 X PLUS):** 11 Tasten, Mapping nach
+dem Aufwachen = Identität (`01 02 … 0B`), also physische Position n → HID-Taste n. Windows
+wertet nur HID 1–5 aus. **Vorwärts sitzt auf Position 6, Zurück auf 4** (per
+`hidpp_dump --spy` gemessen) — im Host-Modus ist Vorwärts deshalb tot, bis ghub-lite 5 und 6
+tauscht (`feat_buttons.cpp`, Tabelle nach modelId `4099`/`C095`). Die Firmware verwirft das
+Mapping beim Einschlafen; der Manager prüft es bei jedem Tick. fn4 mit zu kurzer Tabelle
+schaltet Tasten ab (0 = aus) — nie ein leeres Mapping senden.
+
 **G-Tasten-Meldung:** `11 FF <featIdx> 00 <Maske…>` — Event 0, swId 0, Bit 0 = G1
 aufsteigend, Loslassen als Null-Maske. Voller Zustand bei jeder Änderung.
 
@@ -116,6 +124,7 @@ hidpp_dump --slot 1              nur ein Geräteindex
 hidpp_dump --set-dpi 1600
 hidpp_dump --set-rate 500
 hidpp_dump --listen 30           G-Tasten mitschreiben
+hidpp_dump --spy 25 1            Maustasten-Positionen (0x8110) mitschreiben, Mapping bleibt
 hidpp_dump --set-mode onboard 1  definierte Ausgangslage herstellen
 hidpp_dump --host-test 500 1     Moduswechsel messen, Zustand wiederherstellen
 ```

@@ -6,6 +6,7 @@
 // PostMessage.
 #pragma once
 
+#include "hidpp/feat_buttons.h"
 #include "hidpp/feat_dpi.h"
 #include "hidpp/feat_gkeys.h"
 #include "hidpp/feat_info.h"

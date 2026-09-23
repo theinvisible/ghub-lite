@@ -26,6 +26,9 @@ enum class ChargeState : uint8_t {
 struct DeviceInfo {
     std::wstring name;
     uint32_t unit_id = 0;        // stabiler Schluessel fuer die Einstellungsdatei
+    // modelId aus 0x0003: bis zu drei Produkt-IDs je Verbindungsart (Funk, USB, ...).
+    // Gemessen G502 X PLUS: 4099 (LIGHTSPEED), C095 (Kabel), 0000.
+    uint16_t model_ids[3] = {};
     bool     has_battery = false;
     uint8_t  battery_percent = 0;
     ChargeState charge = ChargeState::Discharging;

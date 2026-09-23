@@ -447,10 +447,31 @@ struct Manager::Impl {
                 if (st.details_complete) changed = true;
             } else {
                 refresh_dynamic(*slot_dev, st, slow_turn);
+                // Bei jedem Tick, nicht nur beim erkannten Aufwachen: eine kurze Schlafphase
+                // zwischen zwei Ticks bleibt unbemerkt, loescht aber das Mapping.
+                ensure_host_buttons(*slot_dev, st);
             }
         }
         if (changed) rebuild_gkey_watches();
         return changed;
+    }
+
+    // Im Host-Modus, den ghub-lite selbst haelt, die Daumentasten auf HID 4/5 legen. Sonst ist
+    // z.B. Vorwaerts an der G502 X PLUS tot, solange ghub-lite laeuft -- sie sitzt auf
+    // Position 6, und die Firmware setzt das Mapping nach jedem Aufwachen auf die Identitaet
+    // zurueck. Geschrieben wird nur bei Abweichung; der Normalfall kostet zwei Lese-Aufrufe.
+    // Den Host-Modus von G HUB fassen wir nicht an: dort verwaltet G HUB die Tasten selbst.
+    void ensure_host_buttons(Device& dev, const DeviceState& st) {
+        auto it = desired.find(st.key);
+        if (it == desired.end() || !it->second.host_mode) return;
+        if (st.info.onboard != OnboardMode::Host) return;
+        const ButtonLayout* layout = find_button_layout(st.info);
+        if (!layout || !dev.has(kFeatMouseButtonSpy)) return;
+
+        std::vector<uint8_t> current;
+        if (!read_button_mapping(dev, &current)) return;
+        const auto want = host_button_mapping(current, *layout);
+        if (want != current) write_button_mapping(dev, want, nullptr);
     }
 
     void apply_desired(Device& dev, DeviceState& st) {
@@ -463,6 +484,7 @@ struct Manager::Impl {
             if (set_onboard_mode(dev, OnboardMode::Host, nullptr))
                 st.info.onboard = OnboardMode::Host;
         }
+        ensure_host_buttons(dev, st);
 
         // Nach dem Schreiben nur den aktuellen Wert nachlesen, nicht die ganzen Faehigkeiten:
         // ein Timeout beim vollen Lesen setzte valid auf false, und weil details_complete
@@ -590,7 +612,10 @@ struct Manager::Impl {
                     publish(L"Signalrate setzen fehlgeschlagen: " + err, true, false);
                     break;
                 }
-                if (switched) desired[c.key].host_mode = true;
+                if (switched) {
+                    desired[c.key].host_mode = true;
+                    ensure_host_buttons(*dev, *st);   // sonst waere Vorwaerts ab jetzt tot
+                }
                 // Nur den Wert nachlesen, siehe apply_desired(). write_rate() hat
                 // supports() geprueft, der Rueckfall ist also eine angebotene Rate.
                 if (!read_rate_current(*dev, &st->rate)) st->rate.current_hz = c.value;

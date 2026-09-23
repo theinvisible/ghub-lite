@@ -37,6 +37,7 @@ bool read_device_info(Device& dev, DeviceInfo* out) {
                        (static_cast<uint32_t>(r.param(2)) << 16) |
                        (static_cast<uint32_t>(r.param(3)) << 8) |
                         static_cast<uint32_t>(r.param(4));
+        for (size_t i = 0; i < 3; ++i) out->model_ids[i] = r.param_u16(7 + 2 * i);
     }
 
     // 0x1004 fn1: stateOfCharge(1), batteryLevel(1), chargingStatus(1), externalPower(1)

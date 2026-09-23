@@ -30,6 +30,7 @@ enum FeatureId : uint16_t {
     kFeatGKeys           = 0x8010,
     kFeatMKeys           = 0x8020,
     kFeatOnboardProfiles = 0x8100,
+    kFeatMouseButtonSpy  = 0x8110,
 };
 
 const wchar_t* feature_name(uint16_t id);

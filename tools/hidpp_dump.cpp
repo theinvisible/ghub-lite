@@ -140,6 +140,13 @@ void dump_misc(Device& dev, const Options& opt) {
         if (opt.extended)
             print_reply(L"0x8100 fn4 getCurrentProfile", dev.call(kFeatOnboardProfiles, 4));
     }
+    if (dev.has(kFeatMouseButtonSpy)) {
+        // Nur Getter. Belegung laut cvuchener/hidpp (IMouseButtonSpy): fn0 Anzahl, fn3 Mapping
+        // (ein Byte je Taste, 0 = fuer HID abgeschaltet, 1..16 = HID-Taste). fn1/fn2 starten
+        // und stoppen die Meldungen, fn4 setzt das Mapping -- alle ausgelassen.
+        print_reply(L"0x8110 fn0 getMouseButtonCount",   dev.call(kFeatMouseButtonSpy, 0));
+        print_reply(L"0x8110 fn3 getMouseButtonMapping", dev.call(kFeatMouseButtonSpy, 3));
+    }
 }
 
 void apply_sets(Device& dev, const Options& opt) {
@@ -282,6 +289,67 @@ int run_gkey_listen(int seconds) {
         }
     }
     wprintf(L"Kein Geraet mit Feature 0x8010 gefunden.\n");
+    return 1;
+}
+
+// Schreibt mit, welche physische Maustaste welches Bit in 0x8110 ist. Noetig, weil die
+// Positionen je Modell verschieden sind und nirgends dokumentiert stehen. Aendert das
+// Mapping nicht; startSpy/stopSpy schalten nur die zusaetzlichen HID++-Meldungen.
+int run_button_spy(int seconds, int only_slot) {
+    auto eps = find_endpoints(kVendorLogitech);
+    for (auto& ep : eps) {
+        Channel ch;
+        if (!ch.open(ep, nullptr)) continue;
+
+        for (int slot = 0; slot <= kMaxPairedSlot; ++slot) {
+            const uint8_t index = (slot == 0) ? kIndexDirect : static_cast<uint8_t>(slot);
+            if (only_slot >= 0 && index != static_cast<uint8_t>(only_slot)) continue;
+            Device dev(&ch, index);
+
+            // Die Maus schlaeft staendig -- ein paar Sekunden Zeit zum Aufwecken geben.
+            Device::SlotState state = dev.probe(400);
+            for (int i = 0; i < 20 && state == Device::SlotState::Asleep; ++i) {
+                if (i == 0) { wprintf(L"Maus schlaeft -- bitte kurz bewegen ...\n"); fflush(stdout); }
+                Sleep(500);
+                state = dev.probe(400);
+            }
+            if (state != Device::SlotState::Awake || !dev.has(kFeatMouseButtonSpy)) continue;
+
+            const uint8_t feat = dev.feature(kFeatMouseButtonSpy)->index;
+            wprintf(L"\nGeraet 0x%02X \"%s\": 0x8110 auf Feature-Index %u, Modus: %s\n",
+                    index, read_device_name(dev).c_str(), feat,
+                    onboard_mode_text(read_onboard_mode(dev)));
+            print_reply(L"fn0 getMouseButtonCount",   dev.call(kFeatMouseButtonSpy, 0));
+            print_reply(L"fn3 getMouseButtonMapping", dev.call(kFeatMouseButtonSpy, 3));
+
+            uint16_t last = 0;
+            const DWORD t0 = GetTickCount();
+            ch.set_notification_handler([t0, index, feat, &last](const uint8_t* d, size_t n) {
+                // Event 0, swId 0: 11 <idx> <feat> 00 <Zustand BE16>
+                if (n < 6 || d[1] != index || d[2] != feat || d[3] != 0x00) return;
+                const uint16_t mask = static_cast<uint16_t>((d[4] << 8) | d[5]);
+                const uint16_t down = static_cast<uint16_t>(mask & ~last);
+                last = mask;
+                std::wstring pressed;
+                for (int bit = 0; bit < 16; ++bit)
+                    if (down & (1u << bit)) pressed += L" Position " + std::to_wstring(bit + 1)
+                                                       + L" (Bit " + std::to_wstring(bit) + L")";
+                wprintf(L"  %6lu ms  %s%s\n", GetTickCount() - t0, hex_dump(d, n).c_str(),
+                        pressed.empty() ? L"" : (L"   gedrueckt:" + pressed).c_str());
+                fflush(stdout);
+            });
+
+            print_reply(L"fn1 startMouseButtonSpy", dev.call(kFeatMouseButtonSpy, 1));
+            wprintf(L"  ... %d s lang die Tasten einzeln und langsam druecken ...\n", seconds);
+            fflush(stdout);
+            Sleep(static_cast<DWORD>(seconds) * 1000);
+
+            print_reply(L"fn2 stopMouseButtonSpy", dev.call(kFeatMouseButtonSpy, 2));
+            ch.set_notification_handler(nullptr);
+            return 0;
+        }
+    }
+    wprintf(L"Kein waches Geraet mit Feature 0x8110 gefunden.\n");
     return 1;
 }
 
@@ -435,6 +503,12 @@ int wmain(int argc, wchar_t** argv) {
                                          ? OnboardMode::Host : OnboardMode::Onboard;
             const int slot = (i + 1 < argc && argv[i + 1][0] != L'-') ? _wtoi(argv[++i]) : -1;
             return run_set_mode(mode, slot);
+        }
+        else if (a == L"--spy") {
+            // --spy [Sekunden] [Geraeteindex]
+            const int secs = (i + 1 < argc && argv[i + 1][0] != L'-') ? _wtoi(argv[++i]) : 20;
+            const int slot = (i + 1 < argc && argv[i + 1][0] != L'-') ? _wtoi(argv[++i]) : -1;
+            return run_button_spy(secs > 0 ? secs : 20, slot);
         }
         else if (a == L"--host-test") {
             // --host-test [Hz] [Geraeteindex]

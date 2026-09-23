@@ -62,6 +62,7 @@ add_library(ghub_hidpp STATIC
     src/hidpp/feat_dpi.cpp
     src/hidpp/feat_rate.cpp
     src/hidpp/feat_gkeys.cpp
+    src/hidpp/feat_buttons.cpp
     src/hidpp/device_manager.cpp
 )
 target_include_directories(ghub_hidpp PUBLIC src)
