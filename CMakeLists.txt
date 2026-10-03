@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
-project(ghub-lite VERSION 0.1.0 LANGUAGES CXX)
+# Die einzige Stelle mit der Versionsnummer. Ressourcen, Manifeste und Code lesen sie aus
+# dem erzeugten version.h bzw. den erzeugten Manifesten unten.
+project(ghub-lite VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,6 +44,15 @@ else()
     message(STATUS "ghub-lite: ohne LTCG -- ${gl_ipo_reason}")
 endif()
 
+# Versionsnummer in Code, VERSIONINFO und Manifest. Der Ressourcen-Compiler sucht Dateien
+# auch ueber die Include-Pfade -- so finden die .rc das erzeugte version.h und Manifest.
+# Windows erwartet in VERSIONINFO und Manifest vier Stellen.
+set(GL_GEN_DIR ${CMAKE_BINARY_DIR}/generated)
+set(GL_VERSION_FULL ${PROJECT_VERSION}.0)
+configure_file(res/version.h.in      ${GL_GEN_DIR}/version.h      @ONLY)
+configure_file(res/app.manifest.in   ${GL_GEN_DIR}/app.manifest   @ONLY)
+configure_file(res/setup.manifest.in ${GL_GEN_DIR}/setup.manifest @ONLY)
+
 function(gl_set_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive- /Zc:__cplusplus)
@@ -74,6 +85,7 @@ gl_set_warnings(ghub_hidpp)
 # ---------------------------------------------------------------------------
 add_executable(hidpp_dump tools/hidpp_dump.cpp)
 target_link_libraries(hidpp_dump PRIVATE ghub_hidpp)
+target_include_directories(hidpp_dump PRIVATE ${GL_GEN_DIR})
 gl_set_warnings(hidpp_dump)
 
 
@@ -95,6 +107,7 @@ add_executable(ghub-lite WIN32
 )
 target_link_libraries(ghub-lite PRIVATE
     ghub_hidpp comctl32 dwmapi uxtheme shell32 advapi32 gdi32 user32)
+target_include_directories(ghub-lite PRIVATE ${GL_GEN_DIR})
 gl_set_warnings(ghub-lite)
 
 # Das Manifest kommt ueber res/app.rc; den vom Linker erzeugten unterdruecken,
@@ -128,8 +141,7 @@ add_executable(ghub-lite-setup WIN32
     ${CMAKE_BINARY_DIR}/setup_payload.rc
     ${GL_PAYLOAD}
 )
-target_include_directories(ghub-lite-setup PRIVATE src)
-target_compile_definitions(ghub-lite-setup PRIVATE GL_VERSION="${PROJECT_VERSION}")
+target_include_directories(ghub-lite-setup PRIVATE src ${GL_GEN_DIR})
 # Neue Exe -> .rc neu uebersetzen. Ohne das haelt der Generator die Ressource fuer aktuell,
 # weil sich die .rc selbst nicht geaendert hat.
 set_source_files_properties(${CMAKE_BINARY_DIR}/setup_payload.rc PROPERTIES

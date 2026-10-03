@@ -39,6 +39,11 @@ Entfernen: `uninstall.exe /uninstall [/quiet]` im Installationsordner; `settings
 bleibt. Das Setup trägt die Release-Exe als Ressource in sich (`build/.../payload/`) — ein
 Debug-Build überschreibt diese Nutzlast.
 
+**Versionsnummer** steht ausschließlich in `CMakeLists.txt` (`project(... VERSION x.y.z)`).
+CMake erzeugt daraus `build/<preset>/generated/version.h` (für Code und `.rc`) und die
+Manifeste aus `res/*.manifest.in` — dort nichts von Hand eintragen. Sie erscheint im
+Fenstertitel, in den Dateieigenschaften, in „Apps & Features“ und in `hidpp_dump`.
+
 Nicht `cmake-build-relwithdebinfo` nehmen (1,33 MB gegen 322 KB). Es gibt eine
 Einzelinstanz-Sperre: ein zweiter Start holt das vorhandene Fenster nach vorn und beendet
 sich. Läuft die installierte Instanz, schlägt das Linken der Build-Exe **nicht** mehr fehl

@@ -13,6 +13,7 @@
 
 #include "app/ipc.h"
 #include "app/settings.h"
+#include "version.h"
 
 #include <windows.h>
 #include <commctrl.h>

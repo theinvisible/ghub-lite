@@ -3,6 +3,7 @@
 #include "app/ipc.h"
 #include "app/keystroke.h"
 #include "ui/dpi_panel.h"
+#include "version.h"
 
 #include <windowsx.h>
 #include <dbt.h>
@@ -19,7 +20,9 @@ namespace ui {
 namespace {
 
 constexpr const wchar_t* kClassName = app::kWindowClass;
-constexpr wchar_t kWindowTitle[] = L"ghub-lite";
+// Mit Versionsnummer: so sieht man ohne Umweg ueber die Dateieigenschaften, welche Fassung
+// gerade laeuft. Gefunden wird das Fenster ueber die Klasse, nicht ueber den Titel.
+constexpr wchar_t kWindowTitle[] = L"ghub-lite " GL_VERSION;
 
 // Nachrichten
 constexpr UINT WM_APP_SNAPSHOT = WM_APP + 1;

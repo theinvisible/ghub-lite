@@ -1,0 +1,16 @@
+// Erzeugt von CMake aus res/version.h.in. Die Versionsnummer steht ausschliesslich in
+// CMakeLists.txt (project(... VERSION ...)) -- hier nichts von Hand aendern.
+//
+// Wird auch vom Ressourcen-Compiler gelesen, deshalb ein klassischer Include-Waechter statt
+// #pragma once.
+#ifndef GL_VERSION_H
+#define GL_VERSION_H
+
+#define GL_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define GL_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define GL_VERSION_PATCH @PROJECT_VERSION_PATCH@
+
+#define GL_VERSION      "@PROJECT_VERSION@"
+#define GL_VERSION_FULL "@GL_VERSION_FULL@"
+
+#endif

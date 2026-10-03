@@ -10,6 +10,7 @@
 #include "hidpp/hid_enum.h"
 #include "hidpp/hidpp_device.h"
 #include "hidpp/hidpp_root.h"
+#include "version.h"
 
 #include <windows.h>
 #include <fcntl.h>
@@ -522,13 +523,16 @@ int wmain(int argc, wchar_t** argv) {
         else if (a == L"--set-rate" && i + 1 < argc) opt.set_rate = _wtoi(argv[++i]);
         else if (a == L"--slot"     && i + 1 < argc) opt.only_slot = _wtoi(argv[++i]);
         else {
-            wprintf(L"hidpp_dump [--extended] [--slot N] [--set-dpi N] [--set-rate HZ]\n");
+            wprintf(L"hidpp_dump " GL_VERSION L"\n"
+                    L"hidpp_dump [--extended] [--slot N] [--set-dpi N] [--set-rate HZ]\n");
             return a == L"--help" || a == L"-h" ? 0 : 2;
         }
     }
 
     warn_about_ghub();
 
+    // Version in den Kopf: die Ausgaben landen als Referenz in docs/devlog/.
+    wprintf(L"hidpp_dump " GL_VERSION L"\n\n");
     wprintf(L"=== Alle Logitech-HID-Interfaces ===\n");
     for (const auto& hi : enumerate(kVendorLogitech)) {
         wprintf(L"  PID %04X  UP=%04X U=%04X  in=%-3u out=%-3u  %s\n",
