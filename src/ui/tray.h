@@ -14,6 +14,10 @@ public:
     ~Tray();
 
     bool add(HWND owner, UINT callback_msg, HICON icon, const std::wstring& tip);
+
+    // Symbol mit den Daten aus add() neu anlegen: nach einem Neustart des Explorers
+    // (TaskbarCreated) oder wenn add() beim Anmelden zu frueh kam.
+    bool restore();
     void set_tip(const std::wstring& tip);
     void remove();
     bool visible() const { return added_; }

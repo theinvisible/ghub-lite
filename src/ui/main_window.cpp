@@ -61,6 +61,12 @@ constexpr int kGKeyGap   = 6;
 constexpr int kPad       = 16;
 
 constexpr UINT_PTR kDeviceChangeTimer = 1;
+constexpr UINT_PTR kTrayRetryTimer    = 2;
+
+// Beim Anmelden kann der Infobereich noch fehlen, wenn der Autostart greift. So lange wird
+// das Symbol nachgereicht, danach bekommt der Benutzer stattdessen das Fenster.
+constexpr UINT kTrayRetryMs    = 2000;
+constexpr int  kTrayRetryCount = 30;
 
 HWND make_static(HWND parent, HINSTANCE inst, const wchar_t* text, DWORD extra = 0) {
     return CreateWindowExW(0, L"Static", text, WS_CHILD | WS_VISIBLE | extra,
@@ -112,7 +118,10 @@ bool MainWindow::create(HINSTANCE inst, bool start_hidden) {
                                           GetSystemMetrics(SM_CXSMICON),
                                           GetSystemMetrics(SM_CYSMICON), 0));
     if (!icon_) icon_ = LoadIconW(nullptr, IDI_APPLICATION);
-    tray_.add(hwnd_, WM_APP_TRAY, icon_, kWindowTitle);
+    // Ohne Symbol waere ein mit --tray gestartetes ghub-lite unsichtbar und unbedienbar.
+    taskbar_created_ = RegisterWindowMessageW(L"TaskbarCreated");
+    if (!tray_.add(hwnd_, WM_APP_TRAY, icon_, kWindowTitle))
+        SetTimer(hwnd_, kTrayRetryTimer, kTrayRetryMs, nullptr);
 
     manager_.start(hwnd_, WM_APP_SNAPSHOT, WM_APP_GKEY);
 
@@ -551,10 +560,15 @@ void MainWindow::sync_host_mode(const hidpp::Snapshot& snap) {
         // Bewusst ohne connected-Pruefung: hier wird nur ein Merker gespeichert, und ein
         // Funkgeraet kann zwischen zwei Ticks als getrennt gelten, obwohl der Befehl eben
         // noch durchging.
-        if (d.key.empty() || d.key[0] == L'?') continue;
+        //
+        // Nur true schreiben: der Manager nimmt host_mode nie von sich aus zurueck. Ein false
+        // im Schnappschuss heisst deshalb nur, dass set_desired() aus prime_desired() noch in
+        // der Queue steckt -- das abzuspeichern loeschte den Merker, bis der naechste
+        // Schnappschuss ihn wieder setzt, und ein Ende dazwischen verloere ihn ganz.
+        if (d.key.empty() || d.key[0] == L'?' || !d.host_mode_forced) continue;
         auto ds = settings_.device(d.key);
-        if (ds.host_mode == d.host_mode_forced) continue;
-        ds.host_mode = d.host_mode_forced;
+        if (ds.host_mode) continue;
+        ds.host_mode = true;
         settings_.set_device(d.key, ds);
     }
 }
@@ -617,6 +631,20 @@ void MainWindow::commit_dpi(int value) {
     auto ds = settings_.device(current_key_);
     ds.dpi = snapped;
     settings_.set_device(current_key_, ds);
+}
+
+// Aus dem Zahlenfeld nur bei echter Aenderung senden. EN_KILLFOCUS kommt auch bei jedem
+// Alt-Tab -- ein unveraenderter Wert soll weder schreiben noch die Statuszeile ueberschreiben.
+// Leeres oder gleichwertiges Feld: auf den aktuellen Wert zuruecksetzen.
+void MainWindow::commit_dpi_field() {
+    const hidpp::DeviceState* m = current();
+    if (!m || !m->dpi.valid) return;
+    const int value = read_dpi_field();
+    if (value <= 0 || m->dpi.snap(value) == m->dpi.current) {
+        set_dpi_fields(m->dpi.current);
+        return;
+    }
+    commit_dpi(value);
 }
 
 void MainWindow::commit_rate(uint16_t hz) {
@@ -697,7 +725,11 @@ void MainWindow::toggle_window(bool show) {
             update_device_list(*snap_);
             update_device_view(*snap_);
         }
-        manager_.refresh(true);
+        // Nur einen Tick, keinen vollen Scan: der leert die Geraeteliste, und eine gerade
+        // schlafende Maus kaeme als namenloser Platzhalter zurueck. An- und Abstecken meldet
+        // WM_DEVICECHANGE ohnehin. Voll nur, wenn noch gar nichts gefunden ist -- dann ist
+        // das Oeffnen des Fensters der natuerliche "nochmal suchen"-Knopf.
+        manager_.refresh(!snap_ || snap_->devices.empty());
     } else {
         ShowWindow(hwnd_, SW_HIDE);
     }
@@ -795,6 +827,17 @@ LRESULT CALLBACK MainWindow::wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 }
 
 LRESULT MainWindow::handle(UINT msg, WPARAM wp, LPARAM lp) {
+    // Registrierte Nachricht, also kein case-Label. Kommt nach jedem Neustart des Explorers;
+    // ohne Neuanlegen waere das Symbol weg und ein ins Tray gelegtes Fenster unerreichbar.
+    if (taskbar_created_ && msg == taskbar_created_) {
+        KillTimer(hwnd_, kTrayRetryTimer);
+        if (!tray_.restore()) {
+            tray_retries_ = 0;
+            SetTimer(hwnd_, kTrayRetryTimer, kTrayRetryMs, nullptr);
+        }
+        return 0;
+    }
+
     switch (msg) {
         case WM_CREATE: {
             // Auf An-/Abstecken von HID-Geraeten lauschen.
@@ -916,6 +959,14 @@ LRESULT MainWindow::handle(UINT msg, WPARAM wp, LPARAM lp) {
             if (wp == kDeviceChangeTimer) {
                 KillTimer(hwnd_, kDeviceChangeTimer);
                 manager_.refresh(true);
+            } else if (wp == kTrayRetryTimer) {
+                if (tray_.restore()) {
+                    KillTimer(hwnd_, kTrayRetryTimer);
+                } else if (++tray_retries_ >= kTrayRetryCount) {
+                    // Aufgeben -- aber nicht unsichtbar weiterlaufen.
+                    KillTimer(hwnd_, kTrayRetryTimer);
+                    if (!IsWindowVisible(hwnd_)) toggle_window(true);
+                }
             }
             return 0;
 
@@ -932,7 +983,12 @@ LRESULT MainWindow::handle(UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             if (id == IDC_EDIT && code == EN_KILLFOCUS && !updating_) {
-                commit_dpi(read_dpi_field());
+                commit_dpi_field();
+                return 0;
+            }
+            // Enter: IsDialogMessage macht daraus IDOK, weil es keinen Standardknopf gibt.
+            if (id == IDOK) {
+                if (GetFocus() == edit_) commit_dpi_field();
                 return 0;
             }
             if (id >= IDC_PRESET && id < IDC_PRESET + 8 && code == BN_CLICKED) {

@@ -54,6 +54,7 @@ private:
 
     const hidpp::DeviceState* current() const;
     void commit_dpi(int value);
+    void commit_dpi_field();
     void commit_rate(uint16_t hz);
     void set_dpi_fields(int value);
     int  read_dpi_field() const;
@@ -112,6 +113,8 @@ private:
     bool status_error_ = false;
     bool quitting_ = false;
     HICON icon_ = nullptr;
+    UINT taskbar_created_ = 0;   // RegisterWindowMessage("TaskbarCreated")
+    int  tray_retries_ = 0;
 };
 
 } // namespace ui

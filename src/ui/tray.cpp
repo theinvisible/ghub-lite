@@ -28,11 +28,21 @@ bool Tray::add(HWND owner, UINT callback_msg, HICON icon, const std::wstring& ti
     nid_.uCallbackMessage = callback_msg;
     nid_.hIcon = icon;
     copy_bounded(nid_.szTip, sizeof(nid_.szTip) / sizeof(wchar_t), tip);
+    return restore();
+}
 
-    added_ = Shell_NotifyIconW(NIM_ADD, &nid_) != FALSE;
-    if (added_) {
+bool Tray::restore() {
+    if (!nid_.hWnd) return false;
+    // set_tip() und notify() haben uFlags auf ihren Teil verengt -- fuers Anlegen alles.
+    nid_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    if (Shell_NotifyIconW(NIM_ADD, &nid_)) {
         nid_.uVersion = NOTIFYICON_VERSION_4;
         Shell_NotifyIconW(NIM_SETVERSION, &nid_);
+        added_ = true;
+    } else {
+        // NIM_ADD scheitert auch, wenn das Symbol noch da ist (TaskbarCreated kommt nicht
+        // nur nach einem Absturz). Dann gilt es weiter als angelegt.
+        added_ = Shell_NotifyIconW(NIM_MODIFY, &nid_) != FALSE;
     }
     return added_;
 }
