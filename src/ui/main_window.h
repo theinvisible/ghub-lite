@@ -46,6 +46,8 @@ private:
     void on_snapshot();
     void prime_desired(const hidpp::Snapshot& snap);
     void sync_host_mode(const hidpp::Snapshot& snap);
+    void sync_current_key(const hidpp::Snapshot& snap);
+    void update_tray_tip();
     void update_device_list(const hidpp::Snapshot& snap);
     void update_device_view(const hidpp::Snapshot& snap);
     void set_status(const std::wstring& text, bool error);

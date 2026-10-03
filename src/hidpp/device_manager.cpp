@@ -327,7 +327,9 @@ struct Manager::Impl {
         // Feature-Cache und kostet nach dem ersten Mal nichts.
         // Name plus mindestens eine Faehigkeit: reisst beim Aufwachen eine Abfrage ab,
         // fehlt in aller Regel beides, und der naechste Tick holt es nach.
-        bool complete = !st.info.name.empty() &&
+        // Die Unit-ID gehoert dazu: ohne sie heisst das Geraet "00000000", und Einstellungen
+        // wie Wunschzustand liefen bis zum naechsten Verbinden unter dem falschen Schluessel.
+        bool complete = !st.info.name.empty() && st.info.unit_id != 0 &&
                         (st.dpi.valid || st.rate.valid || st.gkeys.valid);
         if (dev.has(kFeatAdjustableDpi) || dev.has(kFeatExtAdjustableDpi))
             complete = complete && st.dpi.valid;
@@ -442,9 +444,15 @@ struct Manager::Impl {
                 load_details(*slot_dev, st);
                 apply_desired(*slot_dev, st);
             } else if (!st.details_complete) {
-                // Beim Verbinden ist etwas durchgerutscht -- nachholen, bis es sitzt.
+                // Beim Verbinden ist etwas durchgerutscht -- nachholen, bis es sitzt. Danach
+                // den Wunschzustand erneut anwenden: beim Verbinden fehlte die Faehigkeit,
+                // apply_desired() hat sie deshalb uebersprungen, und bis zum naechsten
+                // Aufwachen kaeme die gespeicherte DPI oder Rate sonst nie an.
                 load_details(*slot_dev, st);
-                if (st.details_complete) changed = true;
+                if (st.details_complete) {
+                    apply_desired(*slot_dev, st);
+                    changed = true;
+                }
             } else {
                 refresh_dynamic(*slot_dev, st, slow_turn);
                 // Bei jedem Tick, nicht nur beim erkannten Aufwachen: eine kurze Schlafphase

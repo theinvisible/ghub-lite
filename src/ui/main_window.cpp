@@ -465,10 +465,6 @@ void MainWindow::update_device_view(const hidpp::Snapshot& snap) {
         gkeys_.show(true);
         layout();
 
-        wchar_t tip[128];
-        swprintf(tip, 128, L"ghub-lite — %s\n%u G-Tasten", m->info.name.c_str(), m->gkeys.count);
-        tray_.set_tip(tip);
-
         updating_ = false;
         return;
     }
@@ -504,13 +500,28 @@ void MainWindow::update_device_view(const hidpp::Snapshot& snap) {
     rates_.set_rates(m->rate.rates_hz, m->rate.current_hz);
     layout();
 
-    // Tooltip im Infobereich auf den aktuellen Stand bringen.
-    wchar_t tip[128];
-    swprintf(tip, 128, L"ghub-lite — %s\n%u DPI · %u Hz",
-             m->info.name.c_str(), m->dpi.current, m->rate.current_hz);
-    tray_.set_tip(tip);
-
     updating_ = false;
+}
+
+// Die Auswahl gilt auch fuer Tray-Menue und Tooltip, nicht nur fuers Fenster. Beim Start mit
+// --tray laeuft update_device_list() nicht -- ohne das hier bliebe current() leer und das
+// Tray-Menue ohne Schnellwahl, bis man das Fenster einmal oeffnet.
+void MainWindow::sync_current_key(const hidpp::Snapshot& snap) {
+    if (snap.find(current_key_)) return;
+    current_key_ = snap.devices.empty() ? std::wstring() : snap.devices.front().key;
+}
+
+void MainWindow::update_tray_tip() {
+    const hidpp::DeviceState* m = current();
+    if (!m) { tray_.set_tip(kWindowTitle); return; }
+
+    wchar_t tip[128];
+    if (m->kind == hidpp::DeviceKind::Keyboard)
+        swprintf(tip, 128, L"ghub-lite — %s\n%u G-Tasten", m->info.name.c_str(), m->gkeys.count);
+    else
+        swprintf(tip, 128, L"ghub-lite — %s\n%u DPI · %u Hz",
+                 m->info.name.c_str(), m->dpi.current, m->rate.current_hz);
+    tray_.set_tip(tip);
 }
 
 // Gespeicherte Werte an den Manager reichen, sobald ein Geraet zum ersten Mal auftaucht.
@@ -553,6 +564,8 @@ void MainWindow::on_snapshot() {
     // Wiederherstellung nach Reconnect und haengt nicht am Fenster.
     prime_desired(*snap_);
     sync_host_mode(*snap_);
+    sync_current_key(*snap_);
+    update_tray_tip();
 
     // Liegt ghub-lite im Tray, sieht niemand hin: dann kein Neuaufbau der Geraeteliste,
     // keine dreissig MoveWindow-Aufrufe. Beim Wiederanzeigen holt toggle_window() das nach.
@@ -912,6 +925,7 @@ LRESULT MainWindow::handle(UINT msg, WPARAM wp, LPARAM lp) {
                 if (const auto* key = reinterpret_cast<const wchar_t*>(ComboBox_GetItemData(combo_, sel)))
                     current_key_ = key;
                 if (snap_) update_device_view(*snap_);
+                update_tray_tip();
                 return 0;
             }
             if (id == IDC_EDIT && code == EN_KILLFOCUS && !updating_) {
